@@ -5,11 +5,12 @@
 --
 -- Note: The x-coordinate is reversed in sign between minetest and minecraft,
 -- and the API compensates for this.
-
+local ie
 if minetest.request_insecure_environment then
-   ie = minetest.request_insecure_environment()
-else
-   ie = _G
+  ie = minetest.request_insecure_environment()
+end
+if not ie then
+  error("pycraft_mod has to be added to the secure.trusted_mods in minetest.conf")
 end
 
 local source = ie.debug.getinfo(1).source:sub(2)
@@ -24,7 +25,18 @@ else
 end
 mypath = mypath .. path_separator
 
+pythonpath = mypath .. "mcpipy"
+scriptpath_list = {}
+table.insert(scriptpath_list, mypath .. "mcpipy" .. path_separator)
+
+p = ie.os.getenv('MINETEST_PY_DIR')
+if p ~= nil then
+   table.insert(scriptpath_list,1,p .. path_separator)
+end
+
+
 local script_window_id = "minetest-rjm-python-script"
+local linux_script_pids = {}
 
 ie.package.path = ie.package.path .. ";" .. mypath .. "?.lua"
 if is_windows then
@@ -34,7 +46,10 @@ else
 end
 
 local block = ie.require("block")
-local socket = ie.require("socket")
+local luasocket = ie.require("socket.core")
+if not luasocket then
+  error("luasocket is not installed or was not found...")
+end
 
 local block_hits = {}
 local chat_record = {}
@@ -63,10 +78,11 @@ if local_only == nil then
 end
 local ws = settings:get_bool("support_websockets")
 if ws == nil then
-    ws = true
+    ws = false
     update_settings = true
     settings:set("support_websockets", tostring(ws))
 end
+ws = nil
 if update_settings then settings:write() end
 
 local settings = Settings(mypath .. "override.conf")
@@ -78,10 +94,6 @@ x = settings:get_bool("restrict_to_local_connections")
 if x ~= nil then
    local_only = x
 end
-x = settings:get_bool("support_websockets")
-if x ~= nil then
-   ws = x 
-end
 
 local remote_address
 if local_only then
@@ -89,9 +101,17 @@ if local_only then
 else
     remote_address = "*"
 end
+--
+-- setup network server
 
-local server,err = socket.bind(remote_address, 4711)
-assert(server, err)
+local server, err = luasocket.tcp()
+if not server then
+  minetest.log("action", err)
+  error("exit")
+end
+
+local bind,err = server:bind(remote_address, 4711)
+assert(bind, err)
 
 server:setoption('tcp-nodelay',true)
 server:settimeout(0)
@@ -102,11 +122,15 @@ if ws then
 	if not bit or not bit.bxor then bit = ie.require("slowbit32") end
     tools = ie.require("tools")
     base64 = ie.require("base64")
-    ws_server = socket.bind(remote_address, 14711)
+    ws_server = server:bind(remote_address, 14711)
     ws_server:setoption('tcp-nodelay',true)
     ws_server:settimeout(0)
 end
 
+local listen, err = server:listen(10)
+if not listen then
+  error("mineysocket: Socket listen error: " .. err)
+end
 
 minetest.register_globalstep(function(dtime)
     local newclient,err
@@ -286,8 +310,19 @@ function python(name, args, kill_script)
 	end
 
 	script_running = true
-	local mcpipy_path = mypath .. path_separator .. "mcpipy" .. path_separator
-	background_launch(script_window_id, mcpipy_path, '"' .. python_interpreter .. '" "' .. mcpipy_path .. script .. '.py" ' .. argtext)
+	local script_name = ''
+	local mcpipy_path = ''
+	for i,p in pairs(scriptpath_list) do
+	    script_name = p .. script .. '.py'
+            f = ie.io.open(script_name)
+	    if f ~= nil then
+               f:close()
+               mcpipy_path = p
+	       break
+	    end
+        end
+	local cmd =  '"' .. python_interpreter .. '" "' .. script_name .. '" ' .. argtext
+	background_launch(script_window_id, mcpipy_path, pythonpath, cmd)
     return true
  end
 
@@ -615,7 +650,27 @@ function handle_world(cmd, args)
         if args[1] == "world_immutable" then
             world_immutable = (0 ~= tonumber(args[2]))
         end
+    elseif cmd == "spawnEntity" then
+       --minetest.chat_send_all("spawnEntity:" .. cmd ) --to remove
+       --minetest.chat_send_all("spawnEntity:" .. args[1] ) --to remove
+       --minetest.chat_send_all("spawnEntity:" .. args[2] ) --to remove
+       --minetest.chat_send_all("spawnEntity:" .. args[3] ) --to remove
+       --minetest.chat_send_all("spawnEntity:" .. args[4] ) --to remove
+
+       entityname = args[1]
+       px = tonumber(args[2])
+       py = tonumber(args[3])
+       pz = tonumber(args[4])
+
+       py = py + 1
+       local p = {x=px,y=py,z=pz}
+       if minetest.add_entity(p, entityname) then
+         minetest.chat_send_all("Entity added")
+       end
+
+       return "81" --block.CACTUS
     end
+
     return nil
 
 end
@@ -640,18 +695,38 @@ function handle_events(cmd, args)
     return nil
 end
 
-function background_launch(window_identifier, working_dir, cmd)
+function background_launch(window_identifier, working_dir, python_path, cmd)
     -- TODO: non-Windows
-    if not is_windows then return false end
-    local cmdline = 'start "' .. window_identifier .. '" /D "' .. working_dir .. '" /MIN ' .. cmd
-    minetest.log("action", "launching ["..cmdline.."]")
-    ie.os.execute(cmdline)
+    if not is_windows then 
+	tmpname = ie.os.tmpname()
+        local cmdline = 'cd "' .. working_dir .. '" ; export PYTHONPATH="' .. python_path .. '" ; ' .. cmd  .. ' & echo $! > ' .. tmpname
+        minetest.log("Launching:" .. cmdline)
+        ie.os.execute(cmdline)
+	tmp = ie.io.open(tmpname)
+	pid = tmp:read()
+	tmp:close()
+	ie.os.remove(tmpname)
+        minetest.log("Launched:" .. pid)
+	table.insert(linux_script_pids, pid)
+    else
+        local cmdline = 'start "' .. window_identifier .. '" /D "' .. working_dir .. '" /MIN ' .. cmd
+        minetest.log("action", "launching ["..cmdline.."]")
+        ie.os.execute(cmdline)
+    end
 end
 
 function kill(window_identifier)
     -- TODO: non-Windows
-    minetest.log('taskkill /F /FI "WINDOWTITLE eq  ' .. window_identifier .. '"')
-    ie.os.execute('taskkill /F /FI "WINDOWTITLE eq  ' .. window_identifier .. '"')
+    if not is_windows then 
+       for i,pid in ipairs(linux_script_pids) do 
+           minetest.log("Killing:" .. pid)
+           ie.os.execute('kill -9 ' .. pid)
+       end
+       linux_script_pids = {}
+    else
+        minetest.log('taskkill /F /FI "WINDOWTITLE eq  ' .. window_identifier .. '"')
+        ie.os.execute('taskkill /F /FI "WINDOWTITLE eq  ' .. window_identifier .. '"')
+    end
 end
 
 function safe_handle_command(source,line)
@@ -861,6 +936,7 @@ function handle_websocket_header(source,line)
 
     return nil
 end
+
 
 
 
