@@ -77,21 +77,21 @@ def angleToTextDirectionCardinal(angle):
 def angleToTextDirection(angle):
     direction = int(round((angle % 360) / 45))
     if direction == 0:
-        return minecraft.Vec3(-1,0,0)
-    elif direction == 1:
-        return minecraft.Vec3(-1,0,-1)
-    elif direction == 2:
-        return minecraft.Vec3(0,0,-1)
-    elif direction == 3:
-        return minecraft.Vec3(1,0,-1)
-    elif direction == 4:
         return minecraft.Vec3(1,0,0)
-    elif direction == 5:
+    elif direction == 1:
         return minecraft.Vec3(1,0,1)
-    elif direction == 6:
+    elif direction == 2:
         return minecraft.Vec3(0,0,1)
-    else:
+    elif direction == 3:
         return minecraft.Vec3(-1,0,1)
+    elif direction == 4:
+        return minecraft.Vec3(-1,0,0)
+    elif direction == 5:
+        return minecraft.Vec3(-1,0,-1)
+    elif direction == 6:
+        return minecraft.Vec3(0,0,-1)
+    else:
+        return minecraft.Vec3(1,0,-1)
 
 if __name__ == '__main__':
     import fonts
@@ -110,3 +110,4 @@ if __name__ == '__main__':
         text = " ".join(sys.argv)
 
     drawText(mc, fonts.FONTS['metrix7pt'], pos, forward, minecraft.Vec3(0,1,0), text, foreground, background, align=ALIGN_RIGHT)
+    #drawText(mc, fonts.FONTS['metrix7pt'], pos, forward, minecraft.Vec3(0,1,0), text, foreground, background, align=ALIGN_LEFT)

@@ -384,24 +384,17 @@ function handle_entity(cmd, id, args)
     elseif cmd == "setTile" then
         entity:setpos({x=tonumber(args[1]), y=tonumber(args[2])-0.5, z=-tonumber(args[3])})
     elseif cmd == "getPitch" then
-        return tonumber(entity:get_look_pitch() * -180 / math.pi)
+        return tonumber(entity:get_look_vertical() * -180 / math.pi)
     elseif cmd == "getRotation" then
-        return tonumber((270 - entity:get_look_yaw() * 180 / math.pi) % 360)
+        return tonumber((270 - entity:get_look_horizontal() * 180 / math.pi) % 360)
     elseif cmd == "getDirection" then
         local dir = entity:get_look_dir()
         return (dir.x)..","..(dir.y)..","..(-dir.z)
     elseif cmd == "setPitch" then
-        -- TODO: For mysterious reasons, set_look_pitch() and get_look_pitch()
-        -- values are opposite sign, so we don't negate here. Ideally, the mod
-        -- would detect this to make sure that if it's fixed in the next version
-        -- this wouldn't be an issue.
-        entity:set_look_pitch(tonumber(args[1]) * math.pi / 180)
+        entity:set_look_vertical(tonumber(args[1]) * math.pi / -180)
+
     elseif cmd == "setRotation" then
-        -- TODO: For mysterious reasons, set_look_yaw() and get_look_yaw()
-        -- values differ by pi/2. Ideally, the mod
-        -- would detect this to make sure that if it's fixed in the next version
-        -- this wouldn't be an issue.
-        entity:set_look_yaw((180-tonumber(args[1])) * math.pi / 180)
+        entity:set_look_horizontal((270-tonumber(args[1])) * math.pi / 180)
     elseif cmd == "setDirection" then
         -- TODO: Fix set_look_yaw() and get_look_yaw() compensation.
         local x = tonumber(args[1])
@@ -409,10 +402,10 @@ function handle_entity(cmd, id, args)
         local z = tonumber(args[3])
         local xz = math.sqrt(x*x+z*z)
         if xz >= 1e-9 then
-           entity:set_look_yaw(- math.atan2(-x,z))
+           entity:set_look_horizontal(- math.atan2(-x,z))
         end
         if x*x + y*y + z*z >= 1e-18 then
-           entity:set_look_pitch(math.atan2(-y, xz))
+           entity:set_look_vertical(math.atan2(-y, xz))
         end
     end
     return nil
